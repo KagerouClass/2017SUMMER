@@ -6,6 +6,7 @@
 #include <time.h>
 #include <sys/wait.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #define MAX_LINE 80 /* The maximum length command */
 #define BACKGROUND 1
@@ -109,14 +110,114 @@ void valueLinkList(int shiftNum, char *newName, char *newValue)//这个函数将
     else
     {
         free(mylinkList->value);//把$1的值给释放了
-        int i = 0;
-        for(; i < 9; ++i)
+        int i = 1;
+        switch(shiftNum)
         {
-            current->value = current->next->value;//左移
-            current = current->next;
+            case 1:
+                for(; i < 9; ++i)
+                {
+                    current->value = current->next->value;//左移
+                    current = current->next;
+                }
+                current->value = NULL;
+                break;
+            case 2:
+                for(; i < 8; ++i)
+                {
+                    current->value = current->next->next->value;//左移
+                    current = current->next;
+                }
+                for(i = 0; i < 2; ++i)
+                {
+                    current->value = NULL;
+                    current = current->next;
+                }
+                break;
+            case 3:
+                for(; i < 7; ++i)
+                {
+                    current->value = current->next->next->next->value;//左移
+                    current = current->next;
+                }
+                for(i = 0; i < 3; ++i)
+                {
+                    current->value = NULL;
+                    current = current->next;
+                }
+                break;
+            case 4:
+                for(; i < 6; ++i)
+                {
+                    current->value = current->next->next->next->next->value;//左移
+                    current = current->next;
+                }
+                for(i = 0; i < 3; ++i)
+                {
+                    current->value = NULL;
+                    current = current->next;
+                }
+                break;
+            case 5:
+                for(; i < 5; ++i)
+                {
+                    current->value = current->next->next->next->next->next->value;//左移
+                    current = current->next;
+                }
+                for(i = 0; i < 5; ++i)
+                {
+                    current->value = NULL;
+                    current = current->next;
+                }
+                break;
+            case 6:
+                for(; i < 4; ++i)
+                {
+                    current->value = current->next->next->next->next->next->next->value;//左移
+                    current = current->next;
+                }
+                for(i = 0; i < 6; ++i)
+                {
+                    current->value = NULL;
+                    current = current->next;
+                }
+                break;
+            case 7:
+                for(; i < 3; ++i)
+                {
+                    current->value = current->next->next->next->next->next->next->next->value;//左移
+                    current = current->next;
+                }
+                for(i = 0; i < 7; ++i)
+                {
+                    current->value = NULL;
+                    current = current->next;
+                }
+                break;
+            case 8:
+                for(; i < 2; ++i)
+                {
+                    current->value = current->next->next->next->next->next->next->next->next->value;//左移
+                    current = current->next;
+                }
+                for(i = 0; i < 8; ++i)
+                {
+                    current->value = NULL;
+                    current = current->next;
+                }
+                break;
+            case 9:
+                current->value = current->next->next->next->next->next->next->next->next->next->value;//左移
+                current = current->next;
+                for(i = 0; i < 9; ++i)
+                {
+                    current->value = NULL;
+                    current = current->next;
+                }
+            default:break;
         }
     }
 }
+
 void cd_command(char *address)
 {
     setpath(address);
@@ -198,7 +299,7 @@ int test_command(struct parseInfo *info)
             return 0;//否则为假
     }
 
-    if(strcmp(info->parameter[1], "-z") == 0)// test string1 = string2
+    if(strcmp(info->parameter[1], "-z") == 0)// test -z string1
     {
         if(strlen(info->parameter[2]) == 0)
             return 1;//字符串长度为0，返回1表示表达式为真
@@ -266,6 +367,33 @@ int test_command(struct parseInfo *info)
     }
 }
 
+int unset_command(struct parseInfo *info)
+{
+    struct valueNode *current = mylinkList->next;
+    struct valueNode *before = mylinkList;
+    //因为本人定义的这个链表开始10个结点为内置的参数，所以不可删除，
+    //因此不检查最开始的那个结点是否满足删除要求
+    while(current != NULL)
+    {
+        if(strcmp(current->name, info->parameter[1]) == 0)
+        {
+            if(currentEnd == current)
+            {
+                currentEnd = before;
+            }
+            if(current->value != NULL)
+                free(current->value);
+            before->next = current->next;
+            struct valueNode *tmp = current;
+            current = current->next;
+            free(tmp);
+        }
+        before = before->next;
+        if(current != NULL)
+            current = current->next;
+    }
+}
+
 int normal_cmd(struct parseInfo *info, char* command,int cmdlen,int infd, int outfd, int fork)
 {
     return is_internal_cmd(info, info->command);
@@ -276,9 +404,11 @@ int is_internal_cmd(struct parseInfo *info, char* command)
     if((endposition = strstr(info->parameter[0], "=")) != NULL) //当前为赋值操作
     {
         char *newName = malloc(sizeof(char) * (endposition - info->parameter[0] + 1));
+        memset(newName, 0, (endposition - info->parameter[0] + 1) *sizeof(char));
         strncpy(newName, info->parameter[0], endposition - info->parameter[0]);
         endposition++;
         char *newValue = malloc(sizeof(char) * strlen(endposition));
+        memset(newValue, 0, strlen(endposition) * sizeof(char));
         strcpy(newValue, endposition);
         valueLinkList(0, newName, newValue);
         free(newName);
@@ -288,60 +418,81 @@ int is_internal_cmd(struct parseInfo *info, char* command)
     {
 
     }
-    else if(strcmp(info->parameter[0], "cd") == 0)
+    else if(strcmp(info->parameter[0], "cd") == 0)//切换工作目录
     {
         cd_command(info->parameter[1]);
     }
-    else if(strcmp(info->parameter[0], "clr") == 0)
+    else if(strcmp(info->parameter[0], "clr") == 0)//清屏
     {
         clr_command();
     }
-    else if(strcmp(info->parameter[0], "dir") == 0)
+    else if(strcmp(info->parameter[0], "dir") == 0)//列出当前工作目录下文件
     {
         dir_command();
     }
-    else if(strcmp(info->parameter[0], "echo") == 0)
+    else if(strcmp(info->parameter[0], "echo") == 0)//回响
     {
         echo_command(info->parameter[1]);
     }
-    else if(strcmp(info->parameter[0], "environ") == 0)
+    else if(strcmp(info->parameter[0], "environ") == 0)//显示环境变量
     {
         environ_command();
     }
-    else if(strcmp(info->parameter[0], "exit") == 0)
+    else if(strcmp(info->parameter[0], "exit") == 0)//退出shell
     {
         return INFINITY;
     }
-    else if(strcmp(info->parameter[0], "exec") == 0)
+    else if(strcmp(info->parameter[0], "exec") == 0)//将外部程序直接覆盖bash的进程
     {
         execvp(info->parameter[1], NULL);
         return INFINITY;
     }
-    else if(strcmp(info->parameter[0], "ls") == 0)
+    else if(strcmp(info->parameter[0], "ls") == 0)//列出指定文件夹下的目录
     {
         ls_command(info->parameter[1]);
     }
-    else if(strcmp(info->parameter[0], "pwd") == 0)
+    else if(strcmp(info->parameter[0], "pwd") == 0)//显示当前工作目录
     {
         pwd_command();
     }
-    else if(strcmp(info->parameter[0], "quit") == 0)
+    else if(strcmp(info->parameter[0], "quit") == 0)//退出shell
     {
         return INFINITY;
     }
-    else if(strcmp(info->parameter[0], "shift") == 0)
+    else if(strcmp(info->parameter[0], "shift") == 0)//左移参数
     {
         valueLinkList(atoi(info->parameter[1]), NULL, NULL);
     }
-    else if(strcmp(info->parameter[0], "time") == 0)
+    else if(strcmp(info->parameter[0], "time") == 0)//打印时间
     {
         time_command();
     }
-    else if(strcmp(info->parameter[0], "test") == 0)
+    else if(strcmp(info->parameter[0], "test") == 0)//测试表达式
     {
         int result = 0;
         result = test_command(info);
         printf("test reslut is: %d", result);
+    }
+    else if(strcmp(info->parameter[0], "umask") == 0)
+    {
+        if(info->parameter[1] && (strcmp(info->parameter[1], "\0") != 0))//用户处于设置状态
+        {
+            int mask =0;
+            mask = strtol(info->parameter[1], NULL, 8);
+            umask((mode_t)mask);
+        }
+        else
+        {
+            int mask = 0;
+            mask = umask(S_IRUSR | S_IWUSR | S_IXUSR);
+            printf("%3.o", mask);
+            fflush(stdout);
+            umask(mask);
+        }
+    }
+    else if(strcmp(info->parameter[0], "unset") == 0)
+    {
+        unset_command(info);
     }
     return 1;
 }
@@ -429,6 +580,12 @@ void parcing(struct parseInfo *info)
             {
                 if(strcmp(endPosition, current->name) == 0)//找到可以替换的
                 {
+                    if(current->value == NULL)
+                    {
+                        printf("This variable has no value!");
+                        current = current->next;
+                        continue;
+                    }
                     info->parameter[i] = malloc(sizeof(char) * strlen(current->value));//可能会导致内存泄漏
                     strcpy(info->parameter[i], current->value);//字符展开
                     break;
@@ -510,6 +667,7 @@ void parcing(struct parseInfo *info)
     }
 
 }
+
 void printPrompt(char *argv[])
 {
     if(argv[1] && strcmp(argv[1], "1") == 0)
