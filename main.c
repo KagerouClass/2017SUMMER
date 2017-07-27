@@ -18,6 +18,7 @@
 #define STANDARDINPUT 0
 #define STANDARDOUTPUT 1
 #define STANDARDERROR 2
+#define INFINITY 100000000
 struct parseInfo
 {
     int flag;
@@ -45,10 +46,36 @@ int normal_cmd(struct parseInfo *info, char* command,int cmdlen,int infd, int ou
 void parseInfoInitialize(struct parseInfo *info);
 
 extern char **environ;
-
+struct valueNode
+{
+    struct valueNode *next;
+    char name[32];
+    char *value;
+};
+static struct valueNode *mylinkList = NULL;
+static struct valueNode *currentEnd = NULL;
 void init()
 {
     setpath("/home/mashiro/pj3-5");//设置默认初始工作目录
+    mylinkList = malloc(sizeof(struct valueNode));
+    struct valueNode *current = mylinkList;
+    int i = 1;
+    for(; i <= 9; ++i)//创建$1-$9的链表以便使用
+    {
+        memset(current->name, 0, 32 * sizeof(char));
+        sprintf(current->name, "%d", i);
+        current->value = NULL;
+        current->next = malloc(sizeof(struct valueNode));
+        current = current->next;
+    }
+    current->next = NULL;
+    currentEnd = current;
+    /*current = mylinkList;
+    for(i = 1; i <= 9; ++i)
+    {
+        printf("%s", current->name);
+        current = current->next;
+    }*/
     fflush(stdout);
 }
 
@@ -57,6 +84,39 @@ void setpath(char *newpath)/*"/bin:/usr/bin"*/
     chdir(newpath);
 }
 
+void valueLinkList(int shiftNum, char *newName, char *newValue)//这个函数将维护一个链表以用于echo的指令展开或者shift操作
+{
+    struct valueNode *current = mylinkList;
+    if(0 == shiftNum)//不需要左移的情况
+    {
+        while(NULL != current)
+        {
+            if(strcmp(current->name, newName) == 0)//当前输入已经存在
+            {
+                free(current->value);
+                current->value = malloc(sizeof(char) * strlen(newValue));//为新值分配空间
+                strcpy(current->value, newValue);//复制新值
+                return;
+            }
+            current = current->next;
+        }
+        currentEnd->next = malloc(sizeof(struct valueNode));//创建新的结点
+        currentEnd = currentEnd->next;//进队（伪）
+        strcpy(currentEnd->name, newName);//复制新名字，名字不拿超过31个字节
+        currentEnd->value = malloc(sizeof(char) * strlen(newValue));//为新值分配空间
+        strcpy(currentEnd->value, newValue);//复制新值
+    }
+    else
+    {
+        free(mylinkList->value);//把$1的值给释放了
+        int i = 0;
+        for(; i < 9; ++i)
+        {
+            current->value = current->next->value;//左移
+            current = current->next;
+        }
+    }
+}
 void cd_command(char *address)
 {
     setpath(address);
@@ -127,13 +187,104 @@ void time_command()
     printf("%s %d:%d:%d\n", dayOfWeek[p->tm_wday], p->tm_hour, p->tm_min, p->tm_sec);
 }
 
+int test_command(struct parseInfo *info)
+{
+    //字符串测试部分
+    if(strcmp(info->parameter[1], "-n") == 0)// test -n string 字符串长度非0
+    {
+        if(strlen(info->parameter[2]) != 0)
+            return 1;//字符串长度不为0，返回1表示表达式为真
+        else
+            return 0;//否则为假
+    }
+
+    if(strcmp(info->parameter[1], "-z") == 0)// test string1 = string2
+    {
+        if(strlen(info->parameter[2]) == 0)
+            return 1;//字符串长度为0，返回1表示表达式为真
+        else
+            return 0;//否则为假
+    }
+
+    if(strcmp(info->parameter[2], "=") == 0)// test string1 = string2
+    {
+        if(strcmp(info->parameter[1], info->parameter[3]) == 0)
+            return 1;//两个字符串完全相同，返回1表示表达式为真
+        else
+            return 0;//否则为假
+    }
+
+    if(strcmp(info->parameter[2], "!=") == 0)// test string1 != string2
+    {
+        if(strcmp(info->parameter[1], info->parameter[3]) == 0)
+            return 0;//两个字符串完全相同，返回0表示表达式为假
+        else
+            return 1;//否则为真
+    }
+    //整数判断部分
+    if(strcmp(info->parameter[2], "-eq") == 0)// test int1 -eq int2 ==
+    {
+        if(strcmp(info->parameter[1], info->parameter[3]) == 0)
+            return 1;//两个字符串完全相同，则其值必定相同，返回1表示表达式为真
+        else
+            return 0;//否则为假
+    }
+    if(strcmp(info->parameter[2], "-ne") == 0)// test int1 -eq int2 ==
+    {
+        if(strcmp(info->parameter[1], info->parameter[3]) != 0)
+            return 1;//两个字符串不完全相同，则其值必定不同，返回1表示表达式为真
+        else
+            return 0;//否则为假
+    }
+    if(strcmp(info->parameter[2], "-ge") == 0)// test int1 -ge int2 >=
+    {
+        if(atoi(info->parameter[1]) >= atoi(info->parameter[3]))
+            return 1;//两个字符串完全相同，返回1表示表达式为真
+        else
+            return 0;//否则为假
+    }
+    if(strcmp(info->parameter[2], "-gt") == 0)// test int1 -gt int2 >
+    {
+        if(atoi(info->parameter[1]) > atoi(info->parameter[3]))
+            return 1;//两个字符串完全相同，返回1表示表达式为真
+        else
+            return 0;//否则为假
+    }
+    if(strcmp(info->parameter[2], "-le") == 0)// test int1 -le int2 <=
+    {
+        if(atoi(info->parameter[1]) <= atoi(info->parameter[3]))
+            return 1;//两个字符串完全相同，返回1表示表达式为真
+        else
+            return 0;//否则为假
+    }
+    if(strcmp(info->parameter[2], "-lt") == 0)// test int1 -lt int2 <
+    {
+        if(atoi(info->parameter[1]) < atoi(info->parameter[3]))
+            return 1;//两个字符串完全相同，返回1表示表达式为真
+        else
+            return 0;//否则为假
+    }
+}
+
 int normal_cmd(struct parseInfo *info, char* command,int cmdlen,int infd, int outfd, int fork)
 {
-    is_internal_cmd(info, info->command);
+    return is_internal_cmd(info, info->command);
 }
 int is_internal_cmd(struct parseInfo *info, char* command)
 {
-    if(strcmp(info->parameter[0], "bg") == 0)
+    char *endposition = NULL;
+    if((endposition = strstr(info->parameter[0], "=")) != NULL) //当前为赋值操作
+    {
+        char *newName = malloc(sizeof(char) * (endposition - info->parameter[0] + 1));
+        strncpy(newName, info->parameter[0], endposition - info->parameter[0]);
+        endposition++;
+        char *newValue = malloc(sizeof(char) * strlen(endposition));
+        strcpy(newValue, endposition);
+        valueLinkList(0, newName, newValue);
+        free(newName);
+        free(newValue);
+    }
+    else if(strcmp(info->parameter[0], "bg") == 0)
     {
 
     }
@@ -159,12 +310,12 @@ int is_internal_cmd(struct parseInfo *info, char* command)
     }
     else if(strcmp(info->parameter[0], "exit") == 0)
     {
-        return 0;
+        return INFINITY;
     }
     else if(strcmp(info->parameter[0], "exec") == 0)
     {
         execvp(info->parameter[1], NULL);
-        return 0;
+        return INFINITY;
     }
     else if(strcmp(info->parameter[0], "ls") == 0)
     {
@@ -176,11 +327,21 @@ int is_internal_cmd(struct parseInfo *info, char* command)
     }
     else if(strcmp(info->parameter[0], "quit") == 0)
     {
-        return 0;
+        return INFINITY;
+    }
+    else if(strcmp(info->parameter[0], "shift") == 0)
+    {
+        valueLinkList(atoi(info->parameter[1]), NULL, NULL);
     }
     else if(strcmp(info->parameter[0], "time") == 0)
     {
         time_command();
+    }
+    else if(strcmp(info->parameter[0], "test") == 0)
+    {
+        int result = 0;
+        result = test_command(info);
+        printf("test reslut is: %d", result);
     }
     return 1;
 }
@@ -192,7 +353,7 @@ int readcommand(struct parseInfo *info) //读取并分析指令
     char *paramEnd = info->prompt;
     int paramCount = 0;
 
-    info->prompt = fgets(info->prompt, MAX_LINE, stdin);
+    fgets(info->prompt, MAX_LINE, stdin);
     strcpy(info->normalPrompt, info->prompt);
     while(true)
     {
@@ -259,7 +420,28 @@ void parcing(struct parseInfo *info)
     int i = 0;
     for(i = 0; i < info->numberOfParameter;)
     {
-        if(strcmp(info->parameter[i], "<") == 0 || strcmp(info->parameter[i], "<<") == 0)
+        char *endPosition = 0;
+        if((endPosition = strstr(info->parameter[i], "$")) != NULL)//当前为赋值表达式
+        {
+            endPosition++;
+            struct valueNode *current = mylinkList;
+            while(current != NULL)
+            {
+                if(strcmp(endPosition, current->name) == 0)//找到可以替换的
+                {
+                    info->parameter[i] = malloc(sizeof(char) * strlen(current->value));//可能会导致内存泄漏
+                    strcpy(info->parameter[i], current->value);//字符展开
+                    break;
+                }
+                current = current->next;
+            }
+            if(current == NULL)//没找到可替换的
+            {
+                info->parameter[i] = malloc(sizeof(char));
+                *(info->parameter[i]) = '\0';
+            }
+        }
+        else if(strcmp(info->parameter[i], "<") == 0 || strcmp(info->parameter[i], "<<") == 0)
         //打上重定向输入的记号
         {
             info->flag |= IN_REDIRECT;
@@ -344,13 +526,14 @@ int main(int argvs, char *argv[])
     int pipe_fd[2] = { 0, 0 };
     int status = 0;
     pid_t childPID = 0;
-    info->prompt = (char*)alloca(sizeof(char) * MAX_LINE);
-    info->normalPrompt = (char*)alloca(sizeof(char) * MAX_LINE);//当输入的命令只有基本内部指令的时候将使用本变量进行操作
+    info->prompt = (char*)malloc(sizeof(char) * MAX_LINE);
+    info->normalPrompt = (char*)malloc(sizeof(char) * MAX_LINE);//当输入的命令只有基本内部指令的时候将使用本变量进行操作
     info->parameter = (char**)malloc(sizeof(char*)*(MAX_NUMBER_OF_ARG + 2));
     //用来存储输入的命令各个parameter存在的地方
     init();//初始化
     parseInfoInitialize(info);//初始化结构体
     printPrompt(argv);
+    fflush(stdout);
     while (true)
     {
         int inFd, outFd;
@@ -369,7 +552,7 @@ int main(int argvs, char *argv[])
                 {
                     perror("脚本进程创建失败！");
                 }
-                else if(scriptPID== 0) // 脚本子进程
+                else if(scriptPID == 0) // 脚本子进程
                 {
                     int infd = 0;
                     infd = open(info->parameter[1], O_RDONLY | O_CREAT, 0777);
@@ -388,7 +571,7 @@ int main(int argvs, char *argv[])
                     continue;
                 }
             }
-            if(normal_cmd(info, info->normalPrompt, strlen(info->normalPrompt), NULL, NULL, NULL)== 0)
+            if(normal_cmd(info, info->normalPrompt, strlen(info->normalPrompt), NULL, NULL, NULL)== INFINITY)
             {//当返回值为0时代表输入了一个exit或者quit指令
                 break;//退出循环结束bash
             }
@@ -491,20 +674,20 @@ int main(int argvs, char *argv[])
                 {
                     close(pipe_fd[1]);
                     close(fileno(stdin));
-                    char buf[80] = { '\0' };
-                    read(pipe_fd[0], buf, 80);
+                    //char buf[80] = { '\0' };
+                    //read(pipe_fd[0], buf, 80);
                     if(info->flag & BACKGROUND)
                     {
                         char bufin[80];
                         getcwd(bufin, sizeof(bufin));    //取得当前的工作目录
                         printf("myshell>%s", bufin);
                         printf("/$ ");
-                        printf("read from pipe: %s\n", buf);
+                        //printf("read from pipe: %s\n", buf);
                         //parseInfoInitialize(info);//初始化结构体
                         //continue;
                     }
-                    //printf("read from pipe: %s\n", buf);
-                    dup2(pipe_fd[0], stdin);
+                    //printf("read from pipe: %s\n", buf);//debug使用
+                    dup2(pipe_fd[0], fileno(stdin));
 
                     close(pipe_fd[0]);
                     char *myargvs[100] = { NULL };
@@ -518,12 +701,8 @@ int main(int argvs, char *argv[])
                     //myargvs[i] = &buf[0];
                     //myargvs[++i] = NULL;
                     i = 0;
-                    while (myargvs[i])
-                    {
-                        printf("%d.%s ", i, myargvs[i]);
-                        i++;
-                    }
-                    execvp(info->command2, myargvs);
+
+                    execvp(info->command2, info->parameter2);
                     sleep(3);
                     exit(0);
                 }
