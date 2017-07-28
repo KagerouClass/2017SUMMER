@@ -55,9 +55,11 @@ struct valueNode
 };
 static struct valueNode *mylinkList = NULL;
 static struct valueNode *currentEnd = NULL;
+char currentShellAddress[1000] = { '\0' };
+int cnt;
 void init()
 {
-    setpath("/home/mashiro/pj3-5");//设置默认初始工作目录
+    setpath(currentShellAddress);//设置默认初始工作目录
     mylinkList = malloc(sizeof(struct valueNode));
     struct valueNode *current = mylinkList;
     int i = 1;
@@ -330,7 +332,7 @@ int test_command(struct parseInfo *info)
         else
             return 0;//否则为假
     }
-    if(strcmp(info->parameter[2], "-ne") == 0)// test int1 -eq int2 ==
+    if(strcmp(info->parameter[2], "-ne") == 0)// test int1 -ne int2 !=
     {
         if(strcmp(info->parameter[1], info->parameter[3]) != 0)
             return 1;//两个字符串不完全相同，则其值必定不同，返回1表示表达式为真
@@ -446,6 +448,34 @@ int is_internal_cmd(struct parseInfo *info, char* command)
     {
         execvp(info->parameter[1], NULL);
         return INFINITY;
+    }
+    else if(strcmp(info->parameter[0], "help") == 0)
+    {
+        FILE *fp = NULL;
+        char c;
+        int i = 0;
+        char currentHelpAddress[1006] = { '\0' };
+        strcpy(currentHelpAddress, currentShellAddress);
+        for(i = cnt; i >=0; --i)
+            if(currentHelpAddress[i] == '/')
+            {
+                currentHelpAddress[i+1] = 'r';
+                currentHelpAddress[i+2] = 'e';
+                currentHelpAddress[i+3] = 'a';
+                currentHelpAddress[i+4] = 'd';
+                currentHelpAddress[i+5] = 'm';
+                currentHelpAddress[i+6] = 'e';
+                currentHelpAddress[i+7] = '\0';
+                break;
+            }
+        printf("%s", currentHelpAddress);
+        fp = fopen(currentHelpAddress, "r");
+        if(NULL == fp)
+            return -1;
+        while(fscanf(fp, "%c", &c) != EOF)
+            printf("%c", c);
+        fclose(fp);
+        fp = NULL;
     }
     else if(strcmp(info->parameter[0], "ls") == 0)//列出指定文件夹下的目录
     {
@@ -672,6 +702,16 @@ void printPrompt(char *argv[])
 {
     if(argv[1] && strcmp(argv[1], "1") == 0)
         return;
+    //printf("\nPlease make sure this input is right, or you can not execute your script:\n");
+    //printf("Please enter now where myshell is: %s", currentShellAddress);
+    //scanf("%s", currentShellAddress);
+    cnt = readlink("/proc/self/exe", currentShellAddress, 1000);
+    if(cnt < 0 || cnt >= 1000)
+    {
+        printf("Open myshell fail!");
+        exit(-1);
+    }
+    //printf("%s", currentShellAddress);
     char buf[80];
     getcwd(buf, sizeof(buf));    //取得当前的工作目录
     printf("\nmyshell>%s/$ ", buf);
@@ -718,7 +758,7 @@ int main(int argvs, char *argv[])
                     char *myargvs[80] = { NULL };
                     myargvs[0] = info->parameter[0];
                     myargvs[1] = "1";
-                    execvp("/home/mashiro/pj3-5/cmake-build-debug/pj3_5", myargvs);
+                    execvp(currentShellAddress, myargvs);
                     exit(0);
                 }
                 else
@@ -840,6 +880,7 @@ int main(int argvs, char *argv[])
                         getcwd(bufin, sizeof(bufin));    //取得当前的工作目录
                         printf("myshell>%s", bufin);
                         printf("/$ ");
+                        fflush(stdout);
                         //printf("read from pipe: %s\n", buf);
                         //parseInfoInitialize(info);//初始化结构体
                         //continue;
@@ -861,7 +902,6 @@ int main(int argvs, char *argv[])
                     i = 0;
 
                     execvp(info->command2, info->parameter2);
-                    sleep(3);
                     exit(0);
                 }
                 else
