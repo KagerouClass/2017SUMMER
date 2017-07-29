@@ -1,3 +1,4 @@
+#include "main.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -10,12 +11,14 @@
 #include <fcntl.h>
 
 #define MAX_LINE 80 /* The maximum length command */
+//以下是flag的bit掩码值，意义见宏定义
 #define BACKGROUND 1
 #define IN_REDIRECT 2
 #define OUT_REDIRECT_OVERWRITE 4
 #define OUT_REDIRECT_ADDITION 8
 #define IS_PIPE 16
 #define FRONTGROUND 32
+
 #define MAX_NUMBER_OF_ARG 10
 #define STANDARDINPUT 0
 #define STANDARDOUTPUT 1
@@ -35,31 +38,7 @@ int is_io_redirect(char* cmd,int cmdlen);   /*解析重定向*/
 
 extern char **environ;
 
-struct parseInfo
-{
-    int flag;
-    int numberOfParameter;
-    int stream;
-    char *inFile;
-    char *outFile;
-    char *prompt;
-    char *normalPrompt;
-    char *command;
-    char *command2;
-    char **parameter;
-    char **parameter2;
-};
-struct background
-{
-    char name[32];
-    int pid;
-};
-struct valueNode
-{
-    struct valueNode *next;
-    char name[32];
-    char *value;
-};
+
 
 static struct valueNode *mylinkList = NULL;
 static struct valueNode *currentEnd = NULL;
