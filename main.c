@@ -8,6 +8,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+
 #define MAX_LINE 80 /* The maximum length command */
 #define BACKGROUND 1
 #define IN_REDIRECT 2
@@ -20,6 +21,20 @@
 #define STANDARDOUTPUT 1
 #define STANDARDERROR 2
 #define INFINITY 100000000
+
+enum bool {true = 1, false = 0};
+void init();
+void setpath(char* newpath);   	/*设置搜索路径*/
+//int readcommand(struct parseInfo *info);			/*读取用户输入*/
+//int is_internal_cmd(struct parseInfo *info, char* command); /*解析内部命令*/
+int is_pipe(char* cmd,int cmdlen); 		/*解析管道命令*/
+int is_io_redirect(char* cmd,int cmdlen);   /*解析重定向*/
+//int normal_cmd(struct parseInfo *info, char* command,int cmdlen,int infd, int outfd, int fork);  /*执行普通命令*/
+/*其他函数…… */
+//void parseInfoInitialize(struct parseInfo *info);
+
+extern char **environ;
+
 struct parseInfo
 {
     int flag;
@@ -34,32 +49,29 @@ struct parseInfo
     char **parameter;
     char **parameter2;
 };
-
-enum bool {true = 1, false = 0};
-void init();
-void setpath(char* newpath);   	/*设置搜索路径*/
-int readcommand(struct parseInfo *info);			/*读取用户输入*/
-int is_internal_cmd(struct parseInfo *info, char* command); /*解析内部命令*/
-int is_pipe(char* cmd,int cmdlen); 		/*解析管道命令*/
-int is_io_redirect(char* cmd,int cmdlen);   /*解析重定向*/
-int normal_cmd(struct parseInfo *info, char* command,int cmdlen,int infd, int outfd, int fork);  /*执行普通命令*/
-/*其他函数…… */
-void parseInfoInitialize(struct parseInfo *info);
-
-extern char **environ;
+struct background
+{
+    char name[32];
+    int pid;
+};
 struct valueNode
 {
     struct valueNode *next;
     char name[32];
     char *value;
 };
+
 static struct valueNode *mylinkList = NULL;
 static struct valueNode *currentEnd = NULL;
+struct background bgTable[80];
 char currentShellAddress[1000] = { '\0' };
 int cnt;
+int backGroundNum = 0;
 void init()
 {
+    readlink("/proc/self/exe", currentShellAddress, 1000);
     setpath(currentShellAddress);//设置默认初始工作目录
+    setenv("shell", currentShellAddress, 1);
     mylinkList = malloc(sizeof(struct valueNode));
     struct valueNode *current = mylinkList;
     int i = 1;
@@ -252,6 +264,45 @@ void environ_command()
     }
 }
 
+void help_command()
+{
+    FILE *fp = NULL;
+    char c;
+    int i = 0;
+    char currentHelpAddress[1006] = { '\0' };
+    strcpy(currentHelpAddress, currentShellAddress);
+    for(i = cnt; i >=0; --i)
+        if(currentHelpAddress[i] == '/')
+        {
+            currentHelpAddress[i+1] = 'r';
+            currentHelpAddress[i+2] = 'e';
+            currentHelpAddress[i+3] = 'a';
+            currentHelpAddress[i+4] = 'd';
+            currentHelpAddress[i+5] = 'm';
+            currentHelpAddress[i+6] = 'e';
+            currentHelpAddress[i+7] = '\0';
+            break;
+        }
+    printf("%s", currentHelpAddress);
+    fp = fopen(currentHelpAddress, "r");
+    if(NULL == fp)
+        return -1;
+    while(fscanf(fp, "%c", &c) != EOF)
+        printf("%c", c);
+    fclose(fp);
+    fp = NULL;
+}
+
+void jobs_command()
+{
+    for(int i = 0; i < backGroundNum; ++i)
+    {
+        printf("%d ", i);
+        printf("%s\n", bgTable[i].name);
+
+    }
+}
+
 void ls_command(char *address)//执行ls指令，列出当前路径下的文件
 {
     DIR *dir = NULL;
@@ -277,6 +328,28 @@ void pwd_command()//执行pwd，获取当前的工作目录
     char buf[80];
     getcwd(buf, sizeof(buf));
     printf("%s\n", buf);
+}
+
+void set_command(struct parseInfo *info)
+{
+    if(!info->parameter[1] || strcmp(info->parameter[1], "-a") != 0)//查看
+    {
+        environ_command();
+        return;
+    }
+    else
+    {
+        struct valueNode *current = mylinkList;
+        while(current != NULL)
+        {
+            if(strcmp(info->parameter[2], current->name) == 0)
+            {
+                setenv(current->name, current->value, 1);
+                break;
+            }
+            current = current->next;
+        }
+    }
 }
 
 void time_command()
@@ -369,6 +442,24 @@ int test_command(struct parseInfo *info)
     }
 }
 
+void umask_command(struct parseInfo *info)
+{
+    if(info->parameter[1] && (strcmp(info->parameter[1], "\0") != 0))//用户处于设置状态
+    {
+        int mask =0;
+        mask = strtol(info->parameter[1], NULL, 8);
+        umask((mode_t)mask);
+    }
+    else
+    {
+        int mask = 0;
+        mask = umask(S_IRUSR | S_IWUSR | S_IXUSR);
+        printf("%3.o", mask);
+        fflush(stdout);
+        umask(mask);
+    }
+}
+
 int unset_command(struct parseInfo *info)
 {
     struct valueNode *current = mylinkList->next;
@@ -394,12 +485,14 @@ int unset_command(struct parseInfo *info)
         if(current != NULL)
             current = current->next;
     }
+    unsetenv(info->parameter[1]);
 }
 
 int normal_cmd(struct parseInfo *info, char* command,int cmdlen,int infd, int outfd, int fork)
 {
     return is_internal_cmd(info, info->command);
 }
+
 int is_internal_cmd(struct parseInfo *info, char* command)
 {
     char *endposition = NULL;
@@ -451,31 +544,11 @@ int is_internal_cmd(struct parseInfo *info, char* command)
     }
     else if(strcmp(info->parameter[0], "help") == 0)
     {
-        FILE *fp = NULL;
-        char c;
-        int i = 0;
-        char currentHelpAddress[1006] = { '\0' };
-        strcpy(currentHelpAddress, currentShellAddress);
-        for(i = cnt; i >=0; --i)
-            if(currentHelpAddress[i] == '/')
-            {
-                currentHelpAddress[i+1] = 'r';
-                currentHelpAddress[i+2] = 'e';
-                currentHelpAddress[i+3] = 'a';
-                currentHelpAddress[i+4] = 'd';
-                currentHelpAddress[i+5] = 'm';
-                currentHelpAddress[i+6] = 'e';
-                currentHelpAddress[i+7] = '\0';
-                break;
-            }
-        printf("%s", currentHelpAddress);
-        fp = fopen(currentHelpAddress, "r");
-        if(NULL == fp)
-            return -1;
-        while(fscanf(fp, "%c", &c) != EOF)
-            printf("%c", c);
-        fclose(fp);
-        fp = NULL;
+        help_command();
+    }
+    else if(strcmp(info->parameter[0], "jobs") == 0)
+    {
+        jobs_command();
     }
     else if(strcmp(info->parameter[0], "ls") == 0)//列出指定文件夹下的目录
     {
@@ -488,6 +561,10 @@ int is_internal_cmd(struct parseInfo *info, char* command)
     else if(strcmp(info->parameter[0], "quit") == 0)//退出shell
     {
         return INFINITY;
+    }
+    else if(strcmp(info->parameter[0], "set") == 0)
+    {
+        set_command(info);
     }
     else if(strcmp(info->parameter[0], "shift") == 0)//左移参数
     {
@@ -505,25 +582,26 @@ int is_internal_cmd(struct parseInfo *info, char* command)
     }
     else if(strcmp(info->parameter[0], "umask") == 0)
     {
-        if(info->parameter[1] && (strcmp(info->parameter[1], "\0") != 0))//用户处于设置状态
-        {
-            int mask =0;
-            mask = strtol(info->parameter[1], NULL, 8);
-            umask((mode_t)mask);
-        }
-        else
-        {
-            int mask = 0;
-            mask = umask(S_IRUSR | S_IWUSR | S_IXUSR);
-            printf("%3.o", mask);
-            fflush(stdout);
-            umask(mask);
-        }
+        umask_command(info);
     }
     else if(strcmp(info->parameter[0], "unset") == 0)
     {
         unset_command(info);
     }
+    /*else
+    {
+        char currentCommandAddress[1032] = { '\0' };
+        strcpy(currentCommandAddress, currentShellAddress);
+        int i = 0;
+        currentCommandAddress[i] = '\0';
+        for(i = cnt; i >=0; --i)
+            if(currentCommandAddress[i] == '/')
+            {
+                strcpy(&currentCommandAddress[i + 1], info->parameter[0]);
+                break;
+            }
+        execvp(currentCommandAddress, NULL);
+    }*/
     return 1;
 }
 
@@ -667,6 +745,8 @@ void parcing(struct parseInfo *info)
             info->flag |= BACKGROUND;
             info->parameter[i] = NULL;
             ++i;
+            strcpy(bgTable[backGroundNum].name, info->command);
+            backGroundNum++;
         }
         else if(strcmp(info->parameter[i], "|") == 0) //管道指令
         {
@@ -691,6 +771,8 @@ void parcing(struct parseInfo *info)
             info->parameter = &(info->parameter[i + 1]);
             --(info->numberOfParameter);
             ++i;
+            strcpy(bgTable[backGroundNum].name, info->command);
+            backGroundNum++;
         }
         else
             ++i;
@@ -716,6 +798,7 @@ void printPrompt(char *argv[])
     getcwd(buf, sizeof(buf));    //取得当前的工作目录
     printf("\nmyshell>%s/$ ", buf);
 }
+
 int main(int argvs, char *argv[])
 {
     char *args[MAX_LINE/2 + 1]; /* command line arguments */
@@ -854,6 +937,7 @@ int main(int argvs, char *argv[])
                     close(outFd);
                 }
             }
+            sleep(0.5);
             normal_cmd(info, info->command, NULL, NULL, NULL, 1);//设置好全部的重定向管道信息以后执行相关的指令
             exit(0);
         }
@@ -912,6 +996,7 @@ int main(int argvs, char *argv[])
             if ((info->flag & BACKGROUND) && !(info->flag & IS_PIPE))
             {
                 printPrompt(argv);
+                fflush(stdout);
                 parseInfoInitialize(info);//初始化结构体
                 continue;
             }
