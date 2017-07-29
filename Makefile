@@ -1,2 +1,2 @@
-myshell: main.c
-	gcc -o  myshell main.c
+myshell: main.c main.h
+	gcc -o myshell main.c main.h
